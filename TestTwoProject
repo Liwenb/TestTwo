@@ -1,0 +1,208 @@
+使用 系统 ;
+使用 System.Collections.Generic ;
+使用 System.Drawing ;
+使用 System.Drawing.Imaging ;
+使用 System.Reflection ;
+使用 System.Runtime.ExceptionServices ;
+使用 System.Runtime.InteropServices ;
+使用 System.Threading ;
+使用 System.Windows.Forms ;
+
+命名空间 csharp_sample_app
+{
+    公共 部分 类 ProcessVideo：Form，Affdex.ProcessStatusListener，Affdex.ImageListener
+    {
+        公共 ProcessVideo（Affdex.Detector检测器）
+        {
+            System.Console.WriteLine（“ Starting Interface ... ”）;
+            这个 .detector =检测器
+            detector.setImageListener（this）;
+            detector.setProcessStatusListener（this）;
+            的InitializeComponent（）;
+            rwLock = new  ReaderWriterLock（）;
+            这个 .DoubleBuffered = true ;
+            this .FormBorderStyle = FormBorderStyle.FixedSingle;
+            SetStyle（ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw，true）;
+        }
+
+        公共 空隙 onImageCapture（Affdex。帧 帧）
+        {
+            frame.Dispose（）;
+
+        }
+
+        公共 空隙 onImageResults（字典 < INT，Affdex。脸部 > 面，Affdex。帧 帧）
+        {
+            process_fps = 1.0f /（frame.getTimestamp（） -  process_last_timestamp）;
+            process_last_timestamp = frame.getTimestamp（）;
+            System.Console.WriteLine（“ pfps：{0} ”，process_fps.ToString（））;
+
+            byte [] pixels = frame.getBGRByteArray（）;
+            这个 .img = new  Bitmap（frame.getWidth（），frame.getHeight（），PixelFormat.Format24bppRgb）;
+            VAR  界限 = 新 的Rectangle（0，0，frame.getWidth（），frame.getHeight（））;
+            BitmapData  bmpData = img.LockBits（bounds，ImageLockMode.WriteOnly，img.PixelFormat）;
+            IntPtr  ptr = bmpData.Scan0;
+
+            int  data_x = 0 ;
+            int  ptr_x = 0 ;
+            int  row_bytes = frame.getWidth（）* 3 ;
+
+            //位图需要位图数据进行字节对齐。
+            // http://stackoverflow.com/questions/20743134/converting-opencv-image-to-gdi-bitmap-doesnt-work-depends-on-image-size
+
+            for（int  y = 0 ; y <frame.getHeight（）; y ++）
+            {
+                Marshal.Copy（像素，data_x，ptr + ptr_x，row_bytes）;
+                data_x + = row_bytes;
+                ptr_x + = bmpData.Stride;
+            }
+            img.UnlockBits（bmpData）;
+
+            这个 .faces = faces;
+            //rwLock.ReleaseWriterLock（）;
+
+            这个 .Invalidate（）;
+            frame.Dispose（）;
+        }
+
+        私人 空隙 DrawResults（图形 克，字典 < INT，Affdex。脸部 > 面）
+        {
+            笔 whitePen = 新 笔（Color.OrangeRed）;
+            Pen  redPen = new  Pen（Color.DarkRed）;
+            笔 bluePen = 新 笔（Color.DarkBlue）;
+            Font  aFont = new  Font（FontFamily.GenericSerif，8，FontStyle.Bold）;
+            浮动 半径 = 2 ;
+            int  spacing = 10 ;
+            int  left_margin = 30 ;
+
+            的foreach（KeyValuePair < INT，Affdex.Face>对在面）
+            {
+                Affdex。脸 的脸 = pair.Value;
+                foreach（Affdex.FeaturePoint fp in face.FeaturePoints）
+                {
+                    g.DrawCircle（whitePen，fp.X，fp.Y，radius）;
+                }
+
+                Affdex。FeaturePoint  tl = minPoint（face.FeaturePoints）;
+                Affdex。FeaturePoint  br = maxPoint（face.FeaturePoints）;
+
+                int  padding =（int）tl.Y;
+
+                g.DrawString（String.Format（“ ID：{0} ”，pair.Key），aFont，whitePen.Brush，new  PointF（br.X，padding + = spacing））;
+                g.DrawString（ “外观”，aFont，bluePen.Brush，新 的PointF（br.X，填充+ =（间距* 2）））;
+                g.DrawString（face.Appearance.Gender.ToString（），aFont，whitePen.Brush，new  PointF（br.X，padding + = spacing））;
+                g.DrawString（face.Appearance.Age.ToString（），aFont，whitePen.Brush，new  PointF（br.X，padding + = spacing））;
+                g.DrawString（face.Appearance.Ethnicity.ToString（），aFont，whitePen.Brush，new  PointF（br.X，padding + = spacing））;
+                g.DrawString（“眼镜：” + face.Appearance.Glasses.ToString（），aFont，whitePen.Brush，新的 PointF（br.X，padding + = spacing））;
+
+                g.DrawString（“ EMOJIs ”，aFont，bluePen.Brush，new  PointF（br.X，padding + =（spacing * 2）））;
+                g.DrawString（“ DominantEmoji：” + face.Emojis.dominantEmoji.ToString（），aFont，
+                             （face.Emojis.dominantEmoji！= Affdex.Emoji.Unknown）？whitePen.Brush：redPen.Brush，
+                             新的 PointF（br.X，padding + =间距））;
+
+                foreach（Enum.GetNames 中的字符串emojiName （typeof（Affdex.Emoji）））
+                {
+                    PropertyInfo  prop = face.Emojis.GetType（）。GetProperty（emojiName.ToLower（））;
+                    if（prop！= null）
+                    {
+                        float  value =（float）prop.GetValue（face.Emojis，null）;
+                        string  c = String.Format（“ {0}：{1：0.00} ”，emojiName，value）;
+                        g.DrawString（c，aFont，（value > 50）？whitePen.Brush：redPen.Brush，new  PointF（br.X，padding + = spacing））;
+                    }
+                }
+
+                g.DrawString（“ EXPRESSIONS ”，aFont，bluePen.Brush，new  PointF（br.X，padding + =（spacing * 2）））;
+                foreach（PropertyInfo prop in typeof（Affdex.Expressions）.GetProperties（））
+                {
+                    float  value =（float）prop.GetValue（face.Expressions，null）;
+                    String  c = String.Format（“ {0}：{1：0.00} ”，prop.Name，value）;
+                    g.DrawString（c，aFont，（value > 50）？whitePen.Brush：redPen.Brush，new  PointF（br.X，padding + = spacing））;
+                }
+
+                g.DrawString（ “ EMOTIONS ”，aFont，bluePen.Brush，新 的PointF（br.X，填充+ =（间距* 2）））;
+
+                foreach（PropertyInfo prop in typeof（Affdex.Emotions）.GetProperties（））
+                {
+                    float  value =（float）prop.GetValue（face.Emotions，null）;
+                    String  c = String.Format（“ {0}：{1：0.00} ”，prop.Name，value）;
+                    g.DrawString（c，aFont，（value > 50）？whitePen.Brush：redPen.Brush，new  PointF（br.X，padding + = spacing））;
+                }
+
+            }
+        }
+
+        public  void  onProcessingException（Affdex。AffdexException  A_0）
+        {
+            System.Console.WriteLine（“处理{0}时遇到异常”，A_0.ToString（））;
+        }
+
+        public  void  onProcessingFinished（）
+        {
+            System.Console.WriteLine（“ Processing finished successfully ”）;
+        }
+
+        Affdex.FeaturePoint  minPoint（Affdex。FeaturePoint [] 点）
+        {
+            Affdex。FeaturePoint  ret = points [ 0 ];
+            的foreach（Affdex.FeaturePoint点在分）
+            {
+                if（point.X <ret.X）ret.X = point.X;
+                if（point.Y <ret.Y）ret.Y = point.Y;
+            }
+            返回 RET;
+        }
+
+        Affdex.FeaturePoint  maxPoint（Affdex。FeaturePoint [] 点）
+        {
+            Affdex。FeaturePoint  ret = points [ 0 ];
+            的foreach（Affdex.FeaturePoint点在分）
+            {
+                if（point.X> ret.X）ret.X = point.X;
+                if（point.Y> ret.Y）ret.Y = point.Y;
+            }
+            返回 RET;
+        }
+
+        [HandleProcessCorruptedStateExceptions]
+        保护 覆盖 void  OnPaint（PaintEventArgs  e）
+        {
+            尝试
+            {
+                // rwLock.AcquireReaderLock（Timeout.Infinite）;
+                if（img！= null）
+                {
+                    这个 .Width = img.Width;
+                    这个 .Height = img.Height;
+                    e.Graphics.DrawImage（（图片）IMG，新 点（0，0））;
+                }
+
+                if（faces！= null）DrawResults（e.Graphics，faces）;
+
+
+                e.Graphics.Flush（）;
+            }
+            catch（System.AccessViolationException exp）
+            {
+                System.Console.WriteLine（“遇到AccessViolationException ”）;
+            }
+        }
+
+        private float  process_last_timestamp =  - 1.0f ;
+        private float  process_fps =  - 1.0f ;
+
+        私人位图 img { get ; 设置 ; }
+        私人字典 < int，Affdex。脸 > 脸 { get ; 设置 ; }
+        私人Affdex.Detector  检测器 { get ; 设置 ; }
+        private ReaderWriterLock  rwLock { get ; 设置 ; }
+    }
+}
+
+public  static  class  GraphicsExtensions
+{
+    public  static  void  DrawCircle（this  Graphics g，Pen  pen，
+                                  float  centerX，float  centerY，float  radius）
+    {
+        g.DrawEllipse（pen，centerX  -  radius，centerY  -  radius，
+                      半径+半径，半径+半径）;
+    }
+}
